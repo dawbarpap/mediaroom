@@ -474,13 +474,21 @@ def call_claude(sentences, format_mode, supplement_mode, excluded):
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=8000,
+        max_tokens=16000,
         temperature=0,
         system=SYSTEM_PROMPT,
         tools=[GENERATE_TOOL],
         tool_choice={"type": "tool", "name": "generate_press_release"},
         messages=[{"role": "user", "content": user_prompt}]
     )
+
+    # Sprawdź czy odpowiedź nie została obcięta limitem tokenów
+    stop_reason = getattr(message, "stop_reason", None)
+    if stop_reason == "max_tokens":
+        st.warning(
+            "Odpowiedź modelu została obcięta limitem tokenów. "
+            "Wynik może być niekompletny. Spróbuj z krótszym materiałem."
+        )
 
     # Wynik znajduje się w bloku tool_use. Normalizujemy do czystego dict.
     for block in message.content:
@@ -505,13 +513,21 @@ Wykonaj zadanie i wywołaj narzędzie review_trainee_text."""
 
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=8000,
+        max_tokens=16000,
         temperature=0,
         system=SYSTEM_PROMPT_TRAINEE,
         tools=[TRAINEE_TOOL],
         tool_choice={"type": "tool", "name": "review_trainee_text"},
         messages=[{"role": "user", "content": user_prompt}]
     )
+
+    # Sprawdź czy odpowiedź nie została obcięta limitem tokenów
+    stop_reason = getattr(message, "stop_reason", None)
+    if stop_reason == "max_tokens":
+        st.warning(
+            "Odpowiedź modelu została obcięta limitem tokenów. "
+            "Wynik może być niekompletny. Spróbuj z krótszym tekstem."
+        )
 
     for block in message.content:
         if block.type == "tool_use" and block.name == "review_trainee_text":
@@ -608,10 +624,39 @@ def render_output_with_flags(pr_sentences):
 
 def display_results(sentences, result):
     """Wyświetla wynik generowania."""
-    input_mapping = _safe_get(result, "input_mapping", []) or []
-    pr_sentences = _safe_get(result, "press_release_sentences", []) or []
-    warnings = _safe_get(result, "warnings", []) or []
-    pr_text = _safe_get(result, "press_release_text", "") or ""
+    # Walidacja typów - bezpiecznik na wypadek gdyby model zwrócił coś niezgodnego ze schematem
+    raw_input_mapping = _safe_get(result, "input_mapping", [])
+    input_mapping = raw_input_mapping if isinstance(raw_input_mapping, list) else []
+    input_mapping = [m for m in input_mapping if isinstance(m, dict)]
+
+    raw_pr_sentences = _safe_get(result, "press_release_sentences", [])
+    pr_sentences = raw_pr_sentences if isinstance(raw_pr_sentences, list) else []
+    pr_sentences = [s for s in pr_sentences if isinstance(s, dict)]
+
+    raw_warnings = _safe_get(result, "warnings", [])
+    warnings = raw_warnings if isinstance(raw_warnings, list) else []
+    warnings = [w for w in warnings if isinstance(w, str)]
+
+    raw_pr_text = _safe_get(result, "press_release_text", "")
+    pr_text = raw_pr_text if isinstance(raw_pr_text, str) else ""
+
+    # Wykryj sytuację niezgodną ze schematem
+    schema_issues = []
+    if not isinstance(raw_pr_text, str):
+        schema_issues.append(f"press_release_text: oczekiwano stringa, otrzymano {type(raw_pr_text).__name__}")
+    if not isinstance(raw_pr_sentences, list):
+        schema_issues.append(f"press_release_sentences: oczekiwano listy, otrzymano {type(raw_pr_sentences).__name__}")
+    if not isinstance(raw_input_mapping, list):
+        schema_issues.append(f"input_mapping: oczekiwano listy, otrzymano {type(raw_input_mapping).__name__}")
+
+    if schema_issues:
+        st.error(
+            "Model zwrócił odpowiedź niezgodną ze schematem narzędzia. "
+            "Wynik może być niekompletny.\n\n"
+            "Szczegóły:\n" + "\n".join(f"- {s}" for s in schema_issues)
+        )
+        with st.expander("Diagnostyka (surowa odpowiedź modelu)"):
+            st.json(result if isinstance(result, dict) else {"raw": str(result)[:5000]})
 
     usage = compute_usage(input_mapping)
     flagged = sum(
@@ -708,10 +753,42 @@ def render_trainee_original(text):
 
 def display_trainee_results(original_text, result):
     """Wyświetla wynik oceny i poprawy tekstu stażysty."""
-    corrected_text = _safe_get(result, "corrected_text", "") or ""
-    corrected_sentences = _safe_get(result, "corrected_sentences", []) or []
-    compliances = _safe_get(result, "compliances", []) or []
-    issues = _safe_get(result, "issues", []) or []
+    # Walidacja typów - jeśli model zwrócił coś dziwnego (np. string zamiast listy),
+    # wymuszamy bezpieczne typy żeby aplikacja nie iterowała po znakach stringa
+    raw_corrected_text = _safe_get(result, "corrected_text", "")
+    corrected_text = raw_corrected_text if isinstance(raw_corrected_text, str) else ""
+
+    raw_corrected_sentences = _safe_get(result, "corrected_sentences", [])
+    corrected_sentences = raw_corrected_sentences if isinstance(raw_corrected_sentences, list) else []
+    corrected_sentences = [s for s in corrected_sentences if isinstance(s, dict)]
+
+    raw_compliances = _safe_get(result, "compliances", [])
+    compliances = raw_compliances if isinstance(raw_compliances, list) else []
+    compliances = [c for c in compliances if isinstance(c, dict)]
+
+    raw_issues = _safe_get(result, "issues", [])
+    issues = raw_issues if isinstance(raw_issues, list) else []
+    issues = [i for i in issues if isinstance(i, dict)]
+
+    # Wykryj sytuację, w której model zwrócił coś niezgodnego ze schematem
+    schema_issues = []
+    if not isinstance(raw_corrected_text, str):
+        schema_issues.append(f"corrected_text: oczekiwano stringa, otrzymano {type(raw_corrected_text).__name__}")
+    if not isinstance(raw_corrected_sentences, list):
+        schema_issues.append(f"corrected_sentences: oczekiwano listy, otrzymano {type(raw_corrected_sentences).__name__}")
+    if not isinstance(raw_compliances, list):
+        schema_issues.append(f"compliances: oczekiwano listy, otrzymano {type(raw_compliances).__name__}")
+    if not isinstance(raw_issues, list):
+        schema_issues.append(f"issues: oczekiwano listy, otrzymano {type(raw_issues).__name__}")
+
+    if schema_issues:
+        st.error(
+            "Model zwrócił odpowiedź niezgodną ze schematem narzędzia. "
+            "Wynik może być niekompletny. Spróbuj jeszcze raz albo z krótszym tekstem.\n\n"
+            "Szczegóły:\n" + "\n".join(f"- {s}" for s in schema_issues)
+        )
+        with st.expander("Diagnostyka (surowa odpowiedź modelu)"):
+            st.json(result if isinstance(result, dict) else {"raw": str(result)[:5000]})
 
     major_issues = sum(1 for i in issues if _safe_get(i, "severity") == "poważne")
     minor_issues = sum(1 for i in issues if _safe_get(i, "severity") == "drobne")
