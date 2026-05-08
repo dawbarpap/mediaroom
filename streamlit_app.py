@@ -147,24 +147,46 @@ POLISH_ABBREVIATIONS = [
 ]
 
 
+DOT_PLACEHOLDER = "\u0001"  # tymczasowy znacznik chronionych kropek wewnątrz skrótów
+
+
 def split_sentences(text):
-    """Dzieli tekst na zdania, uwzględniając polskie skróty."""
+    """Dzieli tekst na zdania, uwzględniając polskie skróty.
+
+    Strategia: kropki wewnątrz skrótów (np. "r.", "proc.", "m.in.") oraz
+    między cyframi (np. "12.04.2026") tymczasowo zastępujemy znacznikiem,
+    dzielimy tekst, potem przywracamy oryginalne kropki.
+    """
     cleaned = re.sub(r"\s+", " ", text.strip())
     if not cleaned:
         return []
 
-    # Chroń skróty przed traktowaniem ich jako końca zdania
-    abbrev_pattern = r"\b(" + "|".join(POLISH_ABBREVIATIONS) + r")\.\s"
-    protected = re.sub(abbrev_pattern, r"\1.\u00A0", cleaned)
-    # Chroń "m.in."
-    protected = re.sub(r"\bm\.in\.\s", "m.in.\u00A0", protected)
-    # Chroń liczby z kropką (np. daty, numery)
-    protected = re.sub(r"(\d)\.\s(\d)", r"\1.\u00A0\2", protected)
+    # Zastąp kropki w skrótach znacznikiem (case insensitive: "Dr." i "dr.")
+    abbrev_pattern = r"\b(" + "|".join(POLISH_ABBREVIATIONS) + r")\."
+    protected = re.sub(
+        abbrev_pattern,
+        lambda m: m.group(1) + DOT_PLACEHOLDER,
+        cleaned,
+        flags=re.IGNORECASE
+    )
+    # Specjalny przypadek "m.in."
+    protected = re.sub(
+        r"\bm\.in\.",
+        "m" + DOT_PLACEHOLDER + "in" + DOT_PLACEHOLDER,
+        protected,
+        flags=re.IGNORECASE
+    )
+    # Liczby z kropką (daty, numery, dziesiętne)
+    protected = re.sub(
+        r"(\d)\.(\d)",
+        lambda m: m.group(1) + DOT_PLACEHOLDER + m.group(2),
+        protected
+    )
 
     parts = re.findall(r"[^.!?]+[.!?]+", protected)
     if not parts:
         parts = [protected]
-    return [p.replace("\u00A0", " ").strip() for p in parts if p.strip()]
+    return [p.replace(DOT_PLACEHOLDER, ".").strip() for p in parts if p.strip()]
 
 
 # ============================================================
