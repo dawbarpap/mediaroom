@@ -274,25 +274,74 @@ MATERIAŁ WEJŚCIOWY (ponumerowane zdania):
 Wykonaj zadanie i zwróć wyłącznie JSON według podanego formatu."""
 
 
-def _to_plain_python(obj):
-    """Rekurencyjnie konwertuje cokolwiek (modele pydantic, słowniki SDK, listy)
-    do czystych typów Pythona: dict, list, str, int, float, bool, None.
+_SENTINEL = object()
 
-    Bez tego cały dalszy kod założyłby, że dostaje czyste słowniki, a SDK
-    Anthropic potrafi zwracać obiekty z atrybutami zamiast kluczy.
+
+def _safe_get(obj, key, default=None):
+    """Pobiera wartość spod klucza/atrybutu, niezależnie od typu obiektu.
+    Działa na słownikach, modelach pydantic, namedtuples, dataclassach.
     """
-    # Modele pydantic (v2)
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    val = getattr(obj, key, _SENTINEL)
+    if val is not _SENTINEL:
+        return val
+    try:
+        return obj[key]
+    except (TypeError, KeyError, IndexError):
+        return default
+
+
+def _to_plain_python(obj):
+    """Konwertuje cokolwiek do czystych typów Pythona przez serializację JSON.
+    Niezależnie od tego, czy SDK zwraca model pydantic, dict, MappingProxy,
+    namedtuple czy inny obiekt, wynikiem jest gwarantowany dict/list/str/int/bool/None.
+    """
+    def _fallback(o):
+        # Najpierw próbujemy model_dump (pydantic v2)
+        dump = getattr(o, "model_dump", None)
+        if callable(dump):
+            try:
+                return dump(mode="python")
+            except Exception:
+                pass
+        # Potem .dict() (pydantic v1, jeśli ktoś tego używa)
+        dict_method = getattr(o, "dict", None)
+        if callable(dict_method) and not isinstance(o, dict):
+            try:
+                result = dict_method()
+                if isinstance(result, dict):
+                    return result
+            except Exception:
+                pass
+        # Potem __dict__ (zwykłe obiekty Pythona)
+        if hasattr(o, "__dict__"):
+            d = vars(o)
+            if d:
+                return {k: v for k, v in d.items() if not k.startswith("_")}
+        # Ostateczność: konwersja do stringa
+        return str(o)
+
+    # Krok 1: pre-konwersja, jeśli sam obiekt jest pydantic
     dump = getattr(obj, "model_dump", None)
     if callable(dump):
-        return _to_plain_python(dump())
-    # Słowniki
-    if isinstance(obj, dict):
-        return {str(k): _to_plain_python(v) for k, v in obj.items()}
-    # Listy i krotki (ale nie stringi, choć stringi i tak nie wpadną w isinstance(list))
-    if isinstance(obj, (list, tuple)):
-        return [_to_plain_python(item) for item in obj]
-    # Typy proste (str, int, float, bool, None) przepuszczamy bez zmian
-    return obj
+        try:
+            obj = dump(mode="python")
+        except Exception:
+            pass
+
+    # Krok 2: round-trip przez JSON wymusza czyste typy
+    try:
+        return json.loads(json.dumps(obj, default=_fallback, ensure_ascii=False))
+    except Exception:
+        # Awaryjny manualny przepływ rekursywny
+        if isinstance(obj, dict):
+            return {str(k): _to_plain_python(v) for k, v in obj.items()}
+        if isinstance(obj, (list, tuple)):
+            return [_to_plain_python(item) for item in obj]
+        return obj
 
 
 def call_claude(sentences, format_mode, supplement_mode, excluded):
@@ -327,8 +376,8 @@ def call_claude(sentences, format_mode, supplement_mode, excluded):
 
 def compute_usage(mapping):
     total = len(mapping)
-    excluded = sum(1 for m in mapping if m.get("status") == "EXCLUDED")
-    used = sum(1 for m in mapping if m.get("status") == "USED")
+    excluded = sum(1 for m in mapping if _safe_get(m, "status") == "EXCLUDED")
+    used = sum(1 for m in mapping if _safe_get(m, "status") == "USED")
     denominator = total - excluded
     if denominator == 0:
         return {"percent": 0, "used": 0, "total": 0, "skipped": 0}
@@ -354,13 +403,13 @@ def escape_html(s):
 
 def render_input_with_highlights(sentences, mapping):
     """Renderuje materiał wejściowy z oznaczonymi statusami zdań."""
-    map_dict = {m["id"]: m for m in mapping}
+    map_dict = {_safe_get(m, "id"): m for m in mapping if _safe_get(m, "id") is not None}
     parts = []
     for i, s in enumerate(sentences):
         sid = i + 1
         m = map_dict.get(sid, {"status": "USED", "reason": ""})
-        status = m.get("status", "USED")
-        reason = m.get("reason") or ""
+        status = _safe_get(m, "status", "USED")
+        reason = _safe_get(m, "reason", "") or ""
 
         if status == "USED":
             style = "background: transparent;"
@@ -383,9 +432,9 @@ def render_output_with_flags(pr_sentences):
     """Renderuje informację prasową z oznaczonymi flagami."""
     parts = []
     for s in pr_sentences:
-        text = s.get("text", "")
-        added = s.get("added", False)
-        supported_by = s.get("supported_by", []) or []
+        text = _safe_get(s, "text", "")
+        added = _safe_get(s, "added", False)
+        supported_by = _safe_get(s, "supported_by", []) or []
 
         if added:
             style = "background: rgba(186, 117, 23, 0.18); border-bottom: 1px dashed #BA7517;"
@@ -406,13 +455,17 @@ def render_output_with_flags(pr_sentences):
 
 def display_results(sentences, result):
     """Wyświetla wynik generowania."""
-    usage = compute_usage(result.get("input_mapping", []))
-    pr_sentences = result.get("press_release_sentences", [])
+    input_mapping = _safe_get(result, "input_mapping", []) or []
+    pr_sentences = _safe_get(result, "press_release_sentences", []) or []
+    warnings = _safe_get(result, "warnings", []) or []
+    pr_text = _safe_get(result, "press_release_text", "") or ""
+
+    usage = compute_usage(input_mapping)
     flagged = sum(
         1 for s in pr_sentences
-        if not s.get("added") and not (s.get("supported_by") or [])
+        if not _safe_get(s, "added") and not (_safe_get(s, "supported_by") or [])
     )
-    added = sum(1 for s in pr_sentences if s.get("added"))
+    added = sum(1 for s in pr_sentences if _safe_get(s, "added"))
 
     # Statystyki
     col1, col2, col3 = st.columns(3)
@@ -436,7 +489,6 @@ def display_results(sentences, result):
         )
 
     # Ostrzeżenia
-    warnings = result.get("warnings", [])
     if warnings:
         st.warning("**Ostrzeżenia operatora:**\n\n" + "\n".join(f"- {w}" for w in warnings))
 
@@ -445,7 +497,7 @@ def display_results(sentences, result):
     with left:
         st.subheader("Materiał wejściowy")
         st.caption("Najedź kursorem na fragment, aby zobaczyć status")
-        html_input = render_input_with_highlights(sentences, result.get("input_mapping", []))
+        html_input = render_input_with_highlights(sentences, input_mapping)
         st.markdown(
             f'<div style="font-size: 14px; line-height: 1.75;">{html_input}</div>',
             unsafe_allow_html=True
@@ -466,7 +518,6 @@ def display_results(sentences, result):
 
     # Surowy tekst do skopiowania
     st.subheader("Tekst gotowy do skopiowania")
-    pr_text = result.get("press_release_text", "")
     st.code(pr_text, language=None)
 
     # Pobranie pliku
