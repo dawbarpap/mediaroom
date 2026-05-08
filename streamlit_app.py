@@ -225,7 +225,7 @@ def call_claude(sentences, format_mode, supplement_mode, excluded):
     user_prompt = build_user_prompt(sentences, format_mode, supplement_mode, excluded)
 
     message = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=8000,
         temperature=0,
         system=SYSTEM_PROMPT,
