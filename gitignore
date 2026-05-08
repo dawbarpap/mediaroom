@@ -1,0 +1,28 @@
+# Sekrety i konfiguracja lokalna
+.streamlit/secrets.toml
+.env
+*.local
+
+# Cache Pythona
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Środowiska wirtualne
+venv/
+env/
+.venv/
+.env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Pliki tymczasowe
+*.log
+*.tmp
