@@ -274,6 +274,27 @@ MATERIAŁ WEJŚCIOWY (ponumerowane zdania):
 Wykonaj zadanie i zwróć wyłącznie JSON według podanego formatu."""
 
 
+def _to_plain_python(obj):
+    """Rekurencyjnie konwertuje cokolwiek (modele pydantic, słowniki SDK, listy)
+    do czystych typów Pythona: dict, list, str, int, float, bool, None.
+
+    Bez tego cały dalszy kod założyłby, że dostaje czyste słowniki, a SDK
+    Anthropic potrafi zwracać obiekty z atrybutami zamiast kluczy.
+    """
+    # Modele pydantic (v2)
+    dump = getattr(obj, "model_dump", None)
+    if callable(dump):
+        return _to_plain_python(dump())
+    # Słowniki
+    if isinstance(obj, dict):
+        return {str(k): _to_plain_python(v) for k, v in obj.items()}
+    # Listy i krotki (ale nie stringi, choć stringi i tak nie wpadną w isinstance(list))
+    if isinstance(obj, (list, tuple)):
+        return [_to_plain_python(item) for item in obj]
+    # Typy proste (str, int, float, bool, None) przepuszczamy bez zmian
+    return obj
+
+
 def call_claude(sentences, format_mode, supplement_mode, excluded):
     """Wywołuje Claude API używając tool use i zwraca strukturyzowany wynik."""
     client = anthropic.Anthropic(api_key=st.secrets["anthropic_api_key"])
@@ -289,10 +310,10 @@ def call_claude(sentences, format_mode, supplement_mode, excluded):
         messages=[{"role": "user", "content": user_prompt}]
     )
 
-    # Wynik znajduje się w bloku tool_use, jako struktura Pythona (dict)
+    # Wynik znajduje się w bloku tool_use. Normalizujemy do czystego dict.
     for block in message.content:
         if block.type == "tool_use" and block.name == "generate_press_release":
-            return block.input
+            return _to_plain_python(block.input)
 
     raise ValueError(
         "Model nie wywołał oczekiwanego narzędzia. "
