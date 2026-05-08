@@ -33,7 +33,7 @@ SYSTEM_PROMPT = """Jesteś redaktorem PAP MediaRoom. Tworzysz informacje prasowe
 ZASADY KLUCZOWE:
 1. STRUKTURA: tytuł z oznaczeniem (MediaRoom) na końcu, pogrubiony lead (2 do 4 zdań, kto/co/gdzie/kiedy z atrybucją), akapit pomostowy, korpus z piramidą odwróconą, akapit kontekstowy, stopka.
 2. TYTUŁ: format "Podmiot: konkretna teza" lub "Wydarzenie: konkretna teza". Bez sloganów, bez wykrzykników, bez wartościujących przymiotników.
-3. JĘZYK: rzeczowy, neutralny, bez wartościowania poza cytatami. Bez metafor, sloganów, hipersuperlatywów. Bez "my/nasz" poza cytatami.
+3. JĘZYK: rzeczowy, neutralny, bez wartościowania poza cytatami. Bez metafor, sloganów, hipersuperlatywów. Bez "my/nasz" poza cytatami. UNIKAĆ STRONY BIERNEJ w miarę możliwości - preferować stronę czynną z atrybucją sprawcy (zamiast "zostało ogłoszone" pisać "ministerstwo ogłosiło"). Dopuszczalna strona bierna z atrybucją w opisach badań i ustaleń ("wykazano, że", "badanie objęło").
 4. CYTATY: wprowadzane zróżnicowanymi czasownikami (powiedział, podkreślił, ocenił, zaznaczył, dodał, wyjaśnił, zauważył, wskazał). Atrybucja: imię nazwisko, funkcja. Cudzysłowy polskie „".
 5. LICZBY: każda dana ma atrybucję. Format: "51 proc.", "12 mln zł", "5,7 mld zł", "19 kwietnia", "2026 r."
 6. AKRONIMY: pełna nazwa + (skrót) przy pierwszym użyciu.
@@ -135,7 +135,7 @@ SYSTEM_PROMPT_TRAINEE = """Jesteś doświadczonym redaktorem PAP MediaRoom. Otrz
 ZASADY KLUCZOWE PAP MEDIAROOM:
 1. STRUKTURA: tytuł z oznaczeniem (MediaRoom) na końcu, pogrubiony lead (2 do 4 zdań, kto/co/gdzie/kiedy z atrybucją), akapit pomostowy, korpus z piramidą odwróconą, akapit kontekstowy, stopka.
 2. TYTUŁ: format "Podmiot: konkretna teza" lub "Wydarzenie: konkretna teza". Bez sloganów, bez wykrzykników, bez wartościujących przymiotników.
-3. JĘZYK: rzeczowy, neutralny, bez wartościowania poza cytatami. Bez metafor, sloganów, hipersuperlatywów. Bez "my/nasz" poza cytatami.
+3. JĘZYK: rzeczowy, neutralny, bez wartościowania poza cytatami. Bez metafor, sloganów, hipersuperlatywów. Bez "my/nasz" poza cytatami. UNIKAĆ STRONY BIERNEJ w miarę możliwości - preferować stronę czynną z atrybucją sprawcy (zamiast "zostało ogłoszone" pisać "ministerstwo ogłosiło"). Dopuszczalna strona bierna z atrybucją w opisach badań i ustaleń ("wykazano, że", "badanie objęło").
 4. CYTATY: wprowadzane zróżnicowanymi czasownikami (powiedział, podkreślił, ocenił, zaznaczył, dodał, wyjaśnił, zauważył, wskazał). Atrybucja: imię nazwisko, funkcja. Cudzysłowy polskie „".
 5. LICZBY: każda dana ma atrybucję. Format: "51 proc.", "12 mln zł", "5,7 mld zł", "19 kwietnia", "2026 r."
 6. AKRONIMY: pełna nazwa + (skrót) przy pierwszym użyciu.
@@ -151,10 +151,9 @@ ZAKAZANE:
 - Slogany, język marketingowy, wykrzykniki, pytania retoryczne.
 
 ZADANIE:
-1. Stwórz poprawioną wersję tekstu zgodną ze standardami PAP MediaRoom.
+1. Stwórz poprawioną wersję tekstu zgodną ze standardami PAP MediaRoom. Zachowaj formatowanie akapitów - oddzielaj akapity pustą linią.
 2. Wskaż konkretne uchybienia (co zostało źle zrobione i wymagało poprawki). Każde uchybienie sklasyfikuj według kategorii i wagi (poważne / drobne).
 3. Wskaż konkretne zgodności ze stylebookiem (co stażysta zrobił dobrze, godne pochwały). To ważny element feedbacku motywacyjnego.
-4. Podziel poprawiony tekst na zdania i oznacz, które zdania zostały zmienione względem oryginału.
 
 KATEGORIE UCHYBIEŃ I ZGODNOŚCI:
 - struktura (lead, korpus, kolejność, stopka)
@@ -176,25 +175,7 @@ TRAINEE_TOOL = {
         "properties": {
             "corrected_text": {
                 "type": "string",
-                "description": "Pełny poprawiony tekst informacji prasowej, gotowy do publikacji."
-            },
-            "corrected_sentences": {
-                "type": "array",
-                "description": "Poprawiona informacja prasowa podzielona na pojedyncze zdania.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "text": {
-                            "type": "string",
-                            "description": "Treść zdania w wersji poprawionej."
-                        },
-                        "changed": {
-                            "type": "boolean",
-                            "description": "Czy zdanie zostało zmienione względem oryginału stażysty (true) czy zachowane bez zmian (false)."
-                        }
-                    },
-                    "required": ["text", "changed"]
-                }
+                "description": "Pełny poprawiony tekst informacji prasowej, gotowy do publikacji. Zachowaj formatowanie akapitów (puste linie między akapitami). Zachowaj wszystkie fakty z oryginału stażysty - nie wymyślaj nowych."
             },
             "compliances": {
                 "type": "array",
@@ -244,7 +225,7 @@ TRAINEE_TOOL = {
                 }
             }
         },
-        "required": ["corrected_text", "corrected_sentences", "compliances", "issues"]
+        "required": ["corrected_text", "compliances", "issues"]
     }
 }
 
@@ -727,40 +708,68 @@ def display_results(sentences, result):
     )
 
 
-def render_trainee_corrected(corrected_sentences):
-    """Renderuje poprawiony tekst stażysty z podświetleniem zmienionych zdań."""
+def _normalize_for_compare(text):
+    """Normalizuje zdanie do porównania: małe litery, pojedyncze odstępy, bez końcowych znaków interpunkcyjnych."""
+    return re.sub(r"\s+", " ", text.strip().lower()).rstrip(".!?,;:")
+
+
+def _render_text_with_paragraphs(text):
+    """Renderuje zwykły tekst zachowując akapity (oddzielone pustymi liniami)."""
+    paragraphs = re.split(r"\n\s*\n", text.strip())
     parts = []
-    for s in corrected_sentences:
-        text = _safe_get(s, "text", "")
-        changed = _safe_get(s, "changed", False)
-        if changed:
-            style = "background: rgba(99, 122, 145, 0.18); border-bottom: 1px solid #4a8db5;"
-            tooltip = ' title="Zdanie poprawione przez redaktora"'
-        else:
-            style = ""
-            tooltip = ' title="Zdanie zachowane bez zmian"'
+    for para in paragraphs:
+        if not para.strip():
+            continue
+        cleaned = re.sub(r"\s+", " ", para.strip())
         parts.append(
-            f'<span style="{style} padding: 1px 3px; border-radius: 3px;"{tooltip}>'
-            f'{escape_html(text)}</span>'
+            f"<p style='margin: 0 0 12px 0; font-size: 14px; line-height: 1.75;'>"
+            f"{escape_html(cleaned)}</p>"
         )
-    return " ".join(parts)
+    return "".join(parts)
 
 
-def render_trainee_original(text):
-    """Renderuje oryginalny tekst stażysty z zachowaniem łamań linii."""
-    return escape_html(text).replace("\n", "<br>")
+def _render_corrected_with_preserved_highlights(corrected_text, original_normalized_set):
+    """Renderuje poprawiony tekst z zielonym podświetleniem zdań zachowanych z oryginału."""
+    paragraphs = re.split(r"\n\s*\n", corrected_text.strip())
+    parts = []
+    for para in paragraphs:
+        if not para.strip():
+            continue
+        sentences = split_sentences(para)
+        if not sentences:
+            cleaned = re.sub(r"\s+", " ", para.strip())
+            parts.append(
+                f"<p style='margin: 0 0 12px 0; font-size: 14px; line-height: 1.75;'>"
+                f"{escape_html(cleaned)}</p>"
+            )
+            continue
+        spans = []
+        for s in sentences:
+            is_preserved = _normalize_for_compare(s) in original_normalized_set
+            if is_preserved:
+                style = (
+                    "background: rgba(151, 196, 89, 0.35); "
+                    "padding: 1px 3px; border-radius: 3px;"
+                )
+                tooltip = ' title="Zdanie zachowane z oryginału stażysty"'
+            else:
+                style = "padding: 1px 3px;"
+                tooltip = ' title="Zdanie zmienione przez redakcję"'
+            spans.append(
+                f'<span style="{style}"{tooltip}>{escape_html(s)}</span>'
+            )
+        parts.append(
+            f"<p style='margin: 0 0 12px 0; font-size: 14px; line-height: 1.75;'>"
+            f"{' '.join(spans)}</p>"
+        )
+    return "".join(parts)
 
 
 def display_trainee_results(original_text, result):
     """Wyświetla wynik oceny i poprawy tekstu stażysty."""
-    # Walidacja typów - jeśli model zwrócił coś dziwnego (np. string zamiast listy),
-    # wymuszamy bezpieczne typy żeby aplikacja nie iterowała po znakach stringa
+    # Walidacja typów
     raw_corrected_text = _safe_get(result, "corrected_text", "")
     corrected_text = raw_corrected_text if isinstance(raw_corrected_text, str) else ""
-
-    raw_corrected_sentences = _safe_get(result, "corrected_sentences", [])
-    corrected_sentences = raw_corrected_sentences if isinstance(raw_corrected_sentences, list) else []
-    corrected_sentences = [s for s in corrected_sentences if isinstance(s, dict)]
 
     raw_compliances = _safe_get(result, "compliances", [])
     compliances = raw_compliances if isinstance(raw_compliances, list) else []
@@ -770,89 +779,80 @@ def display_trainee_results(original_text, result):
     issues = raw_issues if isinstance(raw_issues, list) else []
     issues = [i for i in issues if isinstance(i, dict)]
 
-    # Wykryj sytuację, w której model zwrócił coś niezgodnego ze schematem
-    schema_issues = []
-    if not isinstance(raw_corrected_text, str):
-        schema_issues.append(f"corrected_text: oczekiwano stringa, otrzymano {type(raw_corrected_text).__name__}")
-    if not isinstance(raw_corrected_sentences, list):
-        schema_issues.append(f"corrected_sentences: oczekiwano listy, otrzymano {type(raw_corrected_sentences).__name__}")
-    if not isinstance(raw_compliances, list):
-        schema_issues.append(f"compliances: oczekiwano listy, otrzymano {type(raw_compliances).__name__}")
-    if not isinstance(raw_issues, list):
-        schema_issues.append(f"issues: oczekiwano listy, otrzymano {type(raw_issues).__name__}")
-
-    if schema_issues:
+    # Jeśli model nie zwrócił podstawowych pól, pokaż błąd zamiast pustego widoku
+    if not corrected_text:
         st.error(
-            "Model zwrócił odpowiedź niezgodną ze schematem narzędzia. "
-            "Wynik może być niekompletny. Spróbuj jeszcze raz albo z krótszym tekstem.\n\n"
-            "Szczegóły:\n" + "\n".join(f"- {s}" for s in schema_issues)
+            "Model nie zwrócił poprawionego tekstu. Spróbuj jeszcze raz "
+            "(czasem przy długich tekstach pomaga drugie podejście)."
         )
         with st.expander("Diagnostyka (surowa odpowiedź modelu)"):
             st.json(result if isinstance(result, dict) else {"raw": str(result)[:5000]})
+        return
 
-    major_issues = sum(1 for i in issues if _safe_get(i, "severity") == "poważne")
-    minor_issues = sum(1 for i in issues if _safe_get(i, "severity") == "drobne")
-    changed_count = sum(1 for s in corrected_sentences if _safe_get(s, "changed"))
+    # Porównanie zdań: znajdź te w wersji poprawionej, które są również w oryginale
+    original_sentences = split_sentences(original_text)
+    original_normalized = {_normalize_for_compare(s) for s in original_sentences}
 
-    # Statystyki
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(
-            "Zgodne ze stylebookiem",
-            len(compliances),
-            help="Liczba elementów, które stażysta zrobił zgodnie ze standardami PAP."
-        )
-    with col2:
-        st.metric(
-            "Poważne uchybienia",
-            major_issues,
-            help="Uchybienia, które wymagają obowiązkowej poprawki przed publikacją."
-        )
-    with col3:
-        st.metric(
-            "Drobne uchybienia",
-            minor_issues,
-            help="Uchybienia stylistyczne lub formatowania, mniej krytyczne."
-        )
-    with col4:
-        st.metric(
-            "Zmienione zdania",
-            changed_count,
-            help="Liczba zdań poprawionych względem oryginału stażysty."
-        )
+    corrected_sentences = split_sentences(corrected_text)
+    preserved_count = sum(
+        1 for s in corrected_sentences
+        if _normalize_for_compare(s) in original_normalized
+    )
+    changed_count = len(corrected_sentences) - preserved_count
 
-    # Dwie kolumny: oryginał i poprawiona wersja
+    # Dwie kolumny: oryginał vs wersja poprawiona
     left, right = st.columns(2)
     with left:
         st.subheader("Tekst stażysty (oryginał)")
         st.caption("Wersja przed redakcją")
-        html_original = render_trainee_original(original_text)
         st.markdown(
-            f'<div style="font-size: 14px; line-height: 1.75;">{html_original}</div>',
+            _render_text_with_paragraphs(original_text),
             unsafe_allow_html=True
         )
 
     with right:
         st.subheader("Wersja poprawiona")
-        st.caption("Najedź kursorem na fragment, aby zobaczyć status zmiany")
-        html_corrected = render_trainee_corrected(corrected_sentences)
+        st.caption("Na zielono: zdania zachowane z oryginału stażysty")
         st.markdown(
-            f'<div style="font-size: 14px; line-height: 1.75;">{html_corrected}</div>',
+            _render_corrected_with_preserved_highlights(corrected_text, original_normalized),
             unsafe_allow_html=True
         )
-        st.caption("🔵 Zdanie zmienione przez redakcję")
 
     st.divider()
 
-    # Dwie listy: zgodności i uchybienia
+    # Liczniki pod tekstami
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric(
+            "Liczba zmian",
+            changed_count,
+            help="Liczba zdań w wersji poprawionej, które różnią się od oryginału stażysty."
+        )
+    with col2:
+        st.metric(
+            "Liczba uchybień",
+            len(issues),
+            help="Liczba elementów wymagających poprawki według stylebooka PAP MediaRoom."
+        )
+    with col3:
+        st.metric(
+            "Zrobione dobrze",
+            len(compliances),
+            help="Liczba elementów już zgodnych ze stylebookiem PAP MediaRoom."
+        )
+
+    st.divider()
+
+    # Listy zgodności i uchybień
     col_good, col_bad = st.columns(2)
     with col_good:
-        st.subheader("Zgodne ze stylebookiem")
+        st.subheader("Zrobione dobrze")
         if compliances:
             for c in compliances:
                 cat = _safe_get(c, "category", "inne")
                 desc = _safe_get(c, "description", "")
-                st.markdown(f"✓ **{cat.capitalize()}**: {desc}")
+                if cat or desc:
+                    st.markdown(f"✓ **{cat.capitalize()}**: {desc}")
         else:
             st.caption("Brak wyróżnionych zgodności w tekście.")
 
