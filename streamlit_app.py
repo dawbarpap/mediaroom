@@ -55,20 +55,75 @@ Otrzymujesz materiał wejściowy od klienta podzielony na ponumerowane zdania. T
 3. Podzielić gotową informację prasową na zdania i dla każdego zdania wskazać, które zdania wejścia je wspierają (lista ID), oraz oznaczyć czy zdanie jest dodane (added=true) jako uzupełnienie kontekstowe spoza materiału (tylko w trybie contextual).
 4. Wystawić ostrzeżenia jeśli materiał jest ubogi, sprzeczny lub nie nadaje się do publikacji.
 
-ZWRÓĆ WYŁĄCZNIE JSON, bez markdown fences, bez preambuły:
-{
-  "press_release_text": "Pełny tekst informacji prasowej z łamaniami linii \\n\\n między akapitami",
-  "press_release_sentences": [
-    {"text": "Pierwsze zdanie wyjścia.", "added": false, "supported_by": [1, 3]},
-    {"text": "Drugie zdanie wyjścia.", "added": false, "supported_by": [2]}
-  ],
-  "input_mapping": [
-    {"id": 1, "status": "USED", "reason": null},
-    {"id": 2, "status": "EXCLUDED", "reason": "kontakt prasowy"},
-    {"id": 3, "status": "SKIPPED", "reason": "powtórzenie informacji"}
-  ],
-  "warnings": []
-}"""
+Wynik zwróć przez wywołanie narzędzia `generate_press_release` z odpowiednimi parametrami."""
+
+
+# Schema narzędzia, które wymusza strukturę odpowiedzi modelu
+GENERATE_TOOL = {
+    "name": "generate_press_release",
+    "description": "Zwraca wygenerowaną informację prasową PAP MediaRoom wraz z mapowaniem wykorzystania materiału wejściowego i listą ostrzeżeń.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "press_release_text": {
+                "type": "string",
+                "description": "Pełny tekst informacji prasowej w stylu PAP MediaRoom, z łamaniami linii między akapitami."
+            },
+            "press_release_sentences": {
+                "type": "array",
+                "description": "Wygenerowana informacja prasowa podzielona na pojedyncze zdania.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "Treść pojedynczego zdania informacji prasowej."
+                        },
+                        "added": {
+                            "type": "boolean",
+                            "description": "Czy zdanie jest dodaniem spoza materiału wejściowego (tylko w trybie contextual)."
+                        },
+                        "supported_by": {
+                            "type": "array",
+                            "items": {"type": "integer"},
+                            "description": "Lista ID zdań wejściowych, które wspierają to zdanie. Pusta lista oznacza brak podstawy w materiale (czerwona flaga)."
+                        }
+                    },
+                    "required": ["text", "added", "supported_by"]
+                }
+            },
+            "input_mapping": {
+                "type": "array",
+                "description": "Klasyfikacja każdego zdania wejściowego.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": {
+                            "type": "integer",
+                            "description": "Numer zdania wejściowego."
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["USED", "EXCLUDED", "SKIPPED"],
+                            "description": "USED gdy wykorzystane, EXCLUDED gdy z kategorii wykluczonej, SKIPPED gdy świadomie pominięte."
+                        },
+                        "reason": {
+                            "type": "string",
+                            "description": "Krótkie uzasadnienie statusu (np. 'kontakt prasowy', 'powtórzenie informacji'). Dla USED może być pusty string."
+                        }
+                    },
+                    "required": ["id", "status", "reason"]
+                }
+            },
+            "warnings": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Lista ostrzeżeń dla operatora (np. materiał ubogi, sprzeczność wewnętrzna, treść reklamowa). Pusta lista jeśli brak."
+            }
+        },
+        "required": ["press_release_text", "press_release_sentences", "input_mapping", "warnings"]
+    }
+}
 
 
 # ============================================================
@@ -220,7 +275,7 @@ Wykonaj zadanie i zwróć wyłącznie JSON według podanego formatu."""
 
 
 def call_claude(sentences, format_mode, supplement_mode, excluded):
-    """Wywołuje Claude API i zwraca sparsowany wynik."""
+    """Wywołuje Claude API używając tool use i zwraca strukturyzowany wynik."""
     client = anthropic.Anthropic(api_key=st.secrets["anthropic_api_key"])
     user_prompt = build_user_prompt(sentences, format_mode, supplement_mode, excluded)
 
@@ -229,20 +284,20 @@ def call_claude(sentences, format_mode, supplement_mode, excluded):
         max_tokens=8000,
         temperature=0,
         system=SYSTEM_PROMPT,
+        tools=[GENERATE_TOOL],
+        tool_choice={"type": "tool", "name": "generate_press_release"},
         messages=[{"role": "user", "content": user_prompt}]
     )
 
-    raw_text = "".join(b.text for b in message.content if b.type == "text")
-    cleaned = re.sub(r"^```(?:json)?\s*", "", raw_text)
-    cleaned = re.sub(r"\s*```\s*$", "", cleaned).strip()
+    # Wynik znajduje się w bloku tool_use, jako struktura Pythona (dict)
+    for block in message.content:
+        if block.type == "tool_use" and block.name == "generate_press_release":
+            return block.input
 
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        raise ValueError(
-            f"Nie udało się sparsować odpowiedzi modelu jako JSON. "
-            f"Błąd: {e}\n\nPoczątek odpowiedzi:\n{raw_text[:1500]}"
-        )
+    raise ValueError(
+        "Model nie wywołał oczekiwanego narzędzia. "
+        f"Otrzymano typy bloków: {[b.type for b in message.content]}"
+    )
 
 
 # ============================================================
@@ -282,7 +337,7 @@ def render_input_with_highlights(sentences, mapping):
     parts = []
     for i, s in enumerate(sentences):
         sid = i + 1
-        m = map_dict.get(sid, {"status": "USED", "reason": None})
+        m = map_dict.get(sid, {"status": "USED", "reason": ""})
         status = m.get("status", "USED")
         reason = m.get("reason") or ""
 
@@ -291,10 +346,10 @@ def render_input_with_highlights(sentences, mapping):
             tooltip = ""
         elif status == "EXCLUDED":
             style = "background: #f1efe8; color: #888; text-decoration: line-through;"
-            tooltip = f' title="EXCLUDED: {escape_html(reason)}"'
+            tooltip = f' title="EXCLUDED: {escape_html(reason)}"' if reason else ' title="EXCLUDED"'
         else:  # SKIPPED
             style = "background: rgba(186, 117, 23, 0.15); color: #633806;"
-            tooltip = f' title="SKIPPED: {escape_html(reason)}"'
+            tooltip = f' title="SKIPPED: {escape_html(reason)}"' if reason else ' title="SKIPPED"'
 
         parts.append(
             f'<span style="{style} padding: 1px 3px; border-radius: 3px;"{tooltip}>'
