@@ -61,7 +61,7 @@ Wynik zwróć przez wywołanie narzędzia `generate_press_release` z odpowiednim
 # Schema narzędzia, które wymusza strukturę odpowiedzi modelu
 GENERATE_TOOL = {
     "name": "generate_press_release",
-    "description": "Zwraca wygenerowaną informację prasową PAP MediaRoom wraz z mapowaniem wykorzystania materiału wejściowego i listą ostrzeżeń.",
+    "description": "Zwraca wygenerowaną informację prasową lub depeszę (zależnie od wskazanego stylu) wraz z mapowaniem wykorzystania materiału wejściowego i listą ostrzeżeń.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -149,11 +149,22 @@ ZAKAZANE:
 - Modyfikowanie treści cytatów (wolno tylko poprawiać atrybucję i cudzysłowy).
 - Zmiana funkcji/tytułów rozmówców.
 - Slogany, język marketingowy, wykrzykniki, pytania retoryczne.
+- Cichych poprawek bez uzasadnienia. Każda zmiana musi być wyjaśniona w liście uchybień.
+- Pomijania drobnych uchybień stylistycznych. Stażysta uczy się także na drobiazgach.
 
 ZADANIE:
 1. Stwórz poprawioną wersję tekstu zgodną ze standardami PAP MediaRoom. Zachowaj formatowanie akapitów - oddzielaj akapity pustą linią.
 2. Wskaż konkretne uchybienia (co zostało źle zrobione i wymagało poprawki). Każde uchybienie sklasyfikuj według kategorii i wagi (poważne / drobne).
 3. Wskaż konkretne zgodności ze stylebookiem (co stażysta zrobił dobrze, godne pochwały). To ważny element feedbacku motywacyjnego.
+
+ZASADA SPÓJNOŚCI - KRYTYCZNA:
+- Każda zmiana, którą wprowadzasz w tekście względem oryginału stażysty, MUSI mieć odpowiadające jej uchybienie w liście "issues". Bez wyjątków.
+- Jeśli zmieniasz zdanie ze strony biernej na czynną, to jest uchybienie kategorii "język" (waga: drobne) - wymień je.
+- Jeśli przeformułowujesz zdanie dla lepszej rzeczowości, to jest uchybienie - wymień je.
+- Jeśli poprawiasz cudzysłowy, atrybucję, format liczb - to są uchybienia, wymień każde.
+- Jeśli zmieniasz strukturę (przesuwasz akapity, dzielisz długie zdania) - to są uchybienia, wymień każde.
+- Liczba uchybień powinna być co najmniej tak duża, jak liczba zmienionych zdań. Możesz wymienić więcej, jeśli jedno zdanie zawierało kilka problemów.
+- Jedyna sytuacja, w której lista uchybień może być pusta: gdy nie wprowadzasz ŻADNYCH zmian w tekście stażysty (tekst jest perfekcyjny w obecnej formie).
 
 KATEGORIE UCHYBIEŃ I ZGODNOŚCI:
 - struktura (lead, korpus, kolejność, stopka)
@@ -169,7 +180,7 @@ Wynik zwróć przez wywołanie narzędzia review_trainee_text."""
 
 TRAINEE_TOOL = {
     "name": "review_trainee_text",
-    "description": "Ocenia i poprawia informację prasową napisaną przez stażystę PAP, zwracając poprawioną wersję, listę uchybień oraz listę elementów zgodnych ze stylebookiem.",
+    "description": "Ocenia i poprawia tekst (informację prasową lub depeszę) napisany przez stażystę PAP, zwracając poprawioną wersję, listę uchybień oraz listę elementów zgodnych ze stylebookiem.",
     "input_schema": {
         "type": "object",
         "properties": {
@@ -228,6 +239,132 @@ TRAINEE_TOOL = {
         "required": ["corrected_text", "compliances", "issues"]
     }
 }
+
+
+# ============================================================
+# SYSTEM PROMPTY I TOOL DLA STYLU DEPESZA PAP
+# ============================================================
+
+DEPESZA_STYLE_RULES = """ZASADY DEPESZY PAP:
+
+1. ZWIĘZŁOŚĆ I PRECYZJA: tekst możliwie najkrótszy. Z każdego zdania powinno dać się coś ująć i tekst nadal będzie zrozumiały. Bez metafor, porównań, dygresji. Konkrety i fakty, uporządkowane od najważniejszych.
+
+2. TYTUŁ: streszcza depeszę, nie jest zagadką. Bez pytań, bez niedopowiedzeń. UWAGA: depesza NIE zawiera oznaczenia (MediaRoom) - to jest treść redakcyjna, nie materiał komercyjny.
+
+3. LID: pierwsze 1 do 2 zdań zawiera wszystkie kluczowe informacje: kto, co, kiedy, gdzie, dlaczego. Jeśli czytelnik przeczyta tylko lid, powinien znać sens wydarzenia.
+
+4. PIRAMIDA ODWRÓCONA: najpierw najważniejsze fakty, potem dopowiedzenia i tło. Nigdy odwrotnie. Pozwala to redakcjom skracać depeszę „od dołu" bez utraty sensu.
+
+5. JĘZYK NEUTRALNY, BEZ EMOCJI: nie oceniamy, nie komentujemy, nie podsumowujemy. Bez przymiotników oceniających („słuszny", „szokujący", „tragiczny"). Bez sugerowania emocji („niestety", „na szczęście"). Bez spekulacji. Mówimy, co się stało, nie co o tym myślimy.
+
+6. CYTATY I ŹRÓDŁA: cytaty dosłowne, z podaniem źródła. Bez parafrazowania zmieniającego sens. Cytaty krótkie i istotne. Jeśli osoba wypowiadająca się jest istotna dla sprawy, podajemy jej funkcję.
+
+7. OSZCZĘDNOŚĆ JĘZYKOWA: bez powtórzeń (nie piszemy dwa razy tego samego innymi słowami). Bez oczywistości („W poniedziałek, który był pierwszym dniem tygodnia"). Bez skomplikowanej składni. Krótkie zdania, jednoznaczne komunikaty.
+
+8. TON I FORMA: depesza nie mówi do czytelnika. Bez zwrotów bezpośrednich, bez pytań retorycznych, bez stylizacji. Bez pierwszej osoby. Trzecia osoba, oficjalny rejestr językowy.
+
+9. PRECYZJA I ODPOWIEDZIALNOŚĆ: każda informacja sprawdzona, każda liczba pewna, każda interpretacja ostrożna. Jeśli coś niepotwierdzone, pisać wprost: „według relacji świadków", „jak poinformowano nieoficjalnie".
+
+10. RÓWNOWAGA STRON: wszędzie tam, gdzie to możliwe, przedstawiać stanowiska obu stron sporu, konfliktu, wydarzenia. Jeśli jedna strona stawia zarzuty, druga powinna mieć szansę na odpowiedź. Jeśli takiej odpowiedzi nie ma, zaznaczyć, np. „do czasu publikacji nie otrzymaliśmy komentarza".
+
+11. STRONA BIERNA: unikać w miarę możliwości - preferować stronę czynną z atrybucją sprawcy (zamiast „zostało ogłoszone" pisać „ministerstwo ogłosiło"). Dopuszczalna strona bierna w opisach badań i ustaleń.
+
+DEPESZA NIE ZAWIERA:
+- Oznaczenia (MediaRoom) w tytule
+- Stopki "Źródło informacji: PAP MediaRoom..."
+- Tonu marketingowego, promocyjnego
+- Komentarzy, ocen, spekulacji
+- Zwrotów do czytelnika"""
+
+
+DEPESZA_STYLE_ONLY_INSTRUCTION = """TRYB PRACY: ZMIANA TYLKO STYLU
+
+Zachowaj kolejność informacji z materiału wejściowego. Twoim zadaniem są WYŁĄCZNIE korekty stylistyczne wymagane przez depeszowy stylebook (rzeczowość, neutralność, oszczędność, trzecia osoba, krótkie zdania, brak ozdobników). Nie oceniaj niezależnie wagi informacji ani nie zmieniaj ich kolejności w stosunku do materiału wejściowego."""
+
+
+DEPESZA_PRIORITY_INSTRUCTION = """TRYB PRACY: OCENA WAGI I PIRAMIDA ODWRÓCONA
+
+Działasz jako doświadczony dziennikarz agencyjny PAP. Twoim profesjonalnym obowiązkiem jest niezależnie ocenić wagę każdej informacji i zbudować depeszę według właściwej piramidy odwróconej. Kolejność z materiału wejściowego NIE jest wiążąca - autor mógł ułożyć informacje nieprawidłowo z perspektywy depeszy.
+
+JAK OCENIAĆ WAGĘ INFORMACJI:
+- Społeczne znaczenie (czy wydarzenie dotyczy ogółu, dużych grup, regionu, kraju)
+- Liczba osób dotkniętych skutkami
+- Nowość, bezprecedensowość, świeżość
+- Pilność i aktualność (czy redakcje czekają na tę informację)
+- Konsekwencje krótko- i długoterminowe
+- Zainteresowanie czytelnika ogólnopolskiego
+
+JAK BUDOWAĆ DEPESZĘ:
+1. Przeanalizuj wszystkie fakty z materiału i zdecyduj niezależnie, co jest najważniejsze.
+2. Tytuł: streszcza najważniejszą informację (nie pierwszą z materiału - najważniejszą).
+3. Lid (1 do 2 zdań): kluczowe fakty (kto, co, kiedy, gdzie, dlaczego) wokół najważniejszej informacji.
+4. Korpus: kolejne fakty uporządkowane od najważniejszych do najmniej ważnych.
+5. Końcówka: tło, kontekst, dopowiedzenia, mniej istotne szczegóły.
+6. Informacje wyraźnie poboczne (kontakty, historia firmy nieistotna dla wydarzenia, drobne dygresje, treść marketingowa) umieść na końcu albo pomiń.
+
+ODNOTOWANIE ZMIANY KOLEJNOŚCI:
+- W trybie generowania z materiału klienta: w warnings krótko wyjaśnij, jeśli znacząco zmieniłeś kolejność informacji (np. "Najważniejszą informacją było X z 4. akapitu materiału - przeniesione do leadu").
+- W trybie poprawiania tekstu stażysty: w issues dodaj uchybienie kategorii "struktura" za każde znaczące przesunięcie (np. "Lead nie zawierał najważniejszej informacji - przeniesiono ją z 3. akapitu")."""
+
+
+SYSTEM_PROMPT_DEPESZA = f"""Jesteś dziennikarzem agencyjnym PAP. Tworzysz depesze prasowe na podstawie materiału klienta. Depesza to podstawowa forma dziennikarskiego przekazu - krótka, rzeczowa, szybka. Jej celem nie jest opowiadanie historii, lecz błyskawiczne dostarczenie faktów redakcjom w całej Polsce.
+
+{DEPESZA_STYLE_RULES}
+
+ZAKAZANE:
+- Wprowadzanie informacji spoza materiału wejściowego (chyba że tryb uzupełnień = contextual).
+- Wymyślanie cytatów lub modyfikowanie ich treści.
+- Zmiana funkcji/tytułów rozmówców.
+- Slogany, marketing, wykrzykniki, pytania retoryczne, zwroty do czytelnika.
+
+ZADANIE:
+Otrzymujesz materiał wejściowy od klienta podzielony na ponumerowane zdania. Twoim zadaniem jest:
+1. Stworzyć depeszę PAP w opisanym wyżej stylu (BEZ oznaczenia (MediaRoom), BEZ stopki MediaRoom).
+2. Dla każdego zdania wejściowego sklasyfikować je: USED (wykorzystane), EXCLUDED (kategoria wykluczona: kontakt prasowy, boilerplate, stopki, klauzule, czysta treść marketingowa), SKIPPED (świadomie pominięte z uzasadnieniem).
+3. Podzielić depeszę na zdania, wskazać ID wspierających zdań wejścia, oznaczyć added=true tylko w trybie contextual.
+4. Wystawić ostrzeżenia jeśli materiał jest ubogi, wewnętrznie sprzeczny, jednostronny (np. zarzuty bez odpowiedzi drugiej strony) lub w przeważającej mierze marketingowy.
+
+Wynik zwróć przez wywołanie narzędzia generate_press_release."""
+
+
+SYSTEM_PROMPT_TRAINEE_DEPESZA = f"""Jesteś doświadczonym dziennikarzem agencyjnym PAP. Otrzymujesz depeszę napisaną przez stażystę PAP. Twoim zadaniem jest ocenić ją i poprawić zgodnie z zasadami depeszy PAP, zachowując wszystkie fakty z oryginału stażysty.
+
+{DEPESZA_STYLE_RULES}
+
+ZAKAZANE:
+- Wymyślanie faktów spoza tekstu stażysty. Pracujesz wyłącznie na tym, co napisał stażysta.
+- Modyfikowanie treści cytatów (wolno tylko poprawiać atrybucję i cudzysłowy).
+- Zmiana funkcji/tytułów rozmówców.
+- Cichych poprawek bez uzasadnienia. Każda zmiana musi być wyjaśniona w liście uchybień.
+- Pomijania drobnych uchybień stylistycznych. Stażysta uczy się także na drobiazgach.
+- Slogany, marketing, wykrzykniki, pytania retoryczne, zwroty do czytelnika.
+
+ZADANIE:
+1. Stwórz poprawioną wersję depeszy zgodną ze standardami PAP. Zachowaj formatowanie akapitów - oddzielaj akapity pustą linią. Pamiętaj, że depesza NIE zawiera oznaczenia (MediaRoom) ani stopki MediaRoom.
+2. Wskaż konkretne uchybienia (co zostało źle zrobione i wymagało poprawki). Każde uchybienie sklasyfikuj według kategorii i wagi (poważne / drobne).
+3. Wskaż konkretne zgodności ze stylebookiem (co stażysta zrobił dobrze, godne pochwały). To ważny element feedbacku motywacyjnego.
+
+ZASADA SPÓJNOŚCI - KRYTYCZNA:
+- Każda zmiana, którą wprowadzasz w tekście względem oryginału stażysty, MUSI mieć odpowiadające jej uchybienie w liście "issues". Bez wyjątków.
+- Jeśli zmieniasz zdanie ze strony biernej na czynną, to jest uchybienie kategorii "język" (waga: drobne) - wymień je.
+- Jeśli przeformułowujesz zdanie dla lepszej rzeczowości, to jest uchybienie - wymień je.
+- Jeśli skracasz dygresje, eliminujesz ozdobniki, usuwasz oceny - to są uchybienia, wymień każde.
+- Jeśli poprawiasz cudzysłowy, atrybucję, format liczb - to są uchybienia, wymień każde.
+- Jeśli zmieniasz strukturę (porządkujesz piramidę odwróconą, dzielisz długie zdania) - to są uchybienia, wymień każde.
+- Liczba uchybień powinna być co najmniej tak duża, jak liczba zmienionych zdań.
+- Jedyna sytuacja, w której lista uchybień może być pusta: gdy nie wprowadzasz ŻADNYCH zmian (tekst jest perfekcyjny w obecnej formie).
+
+KATEGORIE UCHYBIEŃ I ZGODNOŚCI:
+- struktura (lid, korpus, piramida odwrócona)
+- język (rzeczowość, neutralność, brak emocji, brak ozdobników)
+- cytaty (atrybucja, cudzysłowy, funkcja osoby)
+- liczby (precyzja, format)
+- tytuł
+- lid
+- równowaga (przedstawienie obu stron)
+- inne
+
+Wynik zwróć przez wywołanie narzędzia review_trainee_text."""
 
 
 # ============================================================
@@ -448,16 +585,29 @@ def _to_plain_python(obj):
         return obj
 
 
-def call_claude(sentences, format_mode, supplement_mode, excluded):
-    """Wywołuje Claude API używając tool use i zwraca strukturyzowany wynik."""
+def call_claude(sentences, format_mode, supplement_mode, excluded, style="mediaroom", depesza_mode="style_only"):
+    """Wywołuje Claude API używając tool use i zwraca strukturyzowany wynik.
+
+    style: "mediaroom" (informacja prasowa MediaRoom) lub "depesza" (depesza PAP)
+    depesza_mode: "style_only" (zachowaj kolejność, zmień tylko styl) lub
+                  "evaluate" (oceń wagę informacji, zastosuj piramidę odwróconą)
+    """
     client = anthropic.Anthropic(api_key=st.secrets["anthropic_api_key"])
     user_prompt = build_user_prompt(sentences, format_mode, supplement_mode, excluded)
 
+    if style == "depesza":
+        if depesza_mode == "evaluate":
+            system_prompt = SYSTEM_PROMPT_DEPESZA + "\n\n" + DEPESZA_PRIORITY_INSTRUCTION
+        else:
+            system_prompt = SYSTEM_PROMPT_DEPESZA + "\n\n" + DEPESZA_STYLE_ONLY_INSTRUCTION
+    else:
+        system_prompt = SYSTEM_PROMPT
+
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-opus-4-6",
         max_tokens=16000,
         temperature=0,
-        system=SYSTEM_PROMPT,
+        system=system_prompt,
         tools=[GENERATE_TOOL],
         tool_choice={"type": "tool", "name": "generate_press_release"},
         messages=[{"role": "user", "content": user_prompt}]
@@ -482,8 +632,13 @@ def call_claude(sentences, format_mode, supplement_mode, excluded):
     )
 
 
-def call_claude_trainee(text):
-    """Wywołuje Claude API w trybie poprawiania tekstu stażysty."""
+def call_claude_trainee(text, style="mediaroom", depesza_mode="style_only"):
+    """Wywołuje Claude API w trybie poprawiania tekstu stażysty.
+
+    style: "mediaroom" (informacja prasowa MediaRoom) lub "depesza" (depesza PAP)
+    depesza_mode: "style_only" (zachowaj kolejność, zmień tylko styl) lub
+                  "evaluate" (oceń wagę informacji, zastosuj piramidę odwróconą)
+    """
     client = anthropic.Anthropic(api_key=st.secrets["anthropic_api_key"])
 
     user_prompt = f"""TEKST STAŻYSTY DO OCENY I POPRAWY:
@@ -492,11 +647,19 @@ def call_claude_trainee(text):
 
 Wykonaj zadanie i wywołaj narzędzie review_trainee_text."""
 
+    if style == "depesza":
+        if depesza_mode == "evaluate":
+            system_prompt = SYSTEM_PROMPT_TRAINEE_DEPESZA + "\n\n" + DEPESZA_PRIORITY_INSTRUCTION
+        else:
+            system_prompt = SYSTEM_PROMPT_TRAINEE_DEPESZA + "\n\n" + DEPESZA_STYLE_ONLY_INSTRUCTION
+    else:
+        system_prompt = SYSTEM_PROMPT_TRAINEE
+
     message = client.messages.create(
-        model="claude-sonnet-4-6",
+        model="claude-opus-4-6",
         max_tokens=16000,
         temperature=0,
-        system=SYSTEM_PROMPT_TRAINEE,
+        system=system_prompt,
         tools=[TRAINEE_TOOL],
         tool_choice={"type": "tool", "name": "review_trainee_text"},
         messages=[{"role": "user", "content": user_prompt}]
@@ -843,6 +1006,15 @@ def display_trainee_results(original_text, result):
 
     st.divider()
 
+    # Ostrzeżenie o niezgodności logicznej: jeśli zmian jest więcej niż uchybień,
+    # to model nie wymienił wszystkich powodów swoich poprawek
+    if changed_count > 0 and len(issues) < changed_count:
+        st.warning(
+            f"Model wprowadził {changed_count} zmian, ale wymienił tylko {len(issues)} uchybień. "
+            f"Niektóre poprawki nie mają uzasadnienia w liście. Spróbuj wygenerować ponownie - "
+            "model czasem opuszcza drobne uchybienia stylistyczne."
+        )
+
     # Listy zgodności i uchybień
     col_good, col_bad = st.columns(2)
     with col_good:
@@ -926,10 +1098,30 @@ def _client_material_flow():
         st.header("Ustawienia generowania")
         st.caption("Tryb: pisanie z materiału klienta")
 
+        style_label = st.radio(
+            "Styl",
+            ["Informacja prasowa MediaRoom", "Depesza PAP (ZROB DEPESZE)"],
+            help="MediaRoom: informacja prasowa z oznaczeniem (MediaRoom) i stopką PAP MediaRoom. Depesza: krótka, neutralna depesza dziennikarska bez oznaczenia komercyjnego.",
+            key="client_style"
+        )
+        style = "depesza" if style_label.startswith("Depesza") else "mediaroom"
+
+        depesza_mode = "style_only"
+        if style == "depesza":
+            depesza_mode_label = st.radio(
+                "Tryb depeszy",
+                ["Zmień tylko styl", "Sprawdź wagę informacji i zmień"],
+                help="Tylko styl: zachowuje kolejność z materiału, zmienia jedynie język na depeszowy. Ocena wagi: AI niezależnie ocenia wagę każdej informacji i stosuje piramidę odwróconą - może przesunąć kluczową informację z dalszej części materiału do leadu.",
+                key="client_depesza_mode"
+            )
+            depesza_mode = "evaluate" if depesza_mode_label.startswith("Sprawdź") else "style_only"
+
+        st.divider()
+
         format_label = st.radio(
             "Format informacji",
             ["Sztywny", "Elastyczny"],
-            help="Sztywny: tytuł + lead + korpus + kontakt + stopka. Elastyczny: dopuszczalne odstępstwa od struktury.",
+            help="Sztywny: pełna struktura zgodna ze stylebookiem. Elastyczny: dopuszczalne odstępstwa od struktury.",
             key="client_format"
         )
         format_mode = "rigid" if format_label == "Sztywny" else "flexible"
@@ -1003,7 +1195,10 @@ def _client_material_flow():
                 st.error(f"Błąd odczytu pliku: {e}")
 
     # Przycisk generowania
-    if st.button("Generuj informację prasową", type="primary", key="client_generate"):
+    button_label = "Generuj depeszę" if style == "depesza" else "Generuj informację prasową"
+    spinner_label = "Generuję depeszę" if style == "depesza" else "Generuję informację prasową"
+
+    if st.button(button_label, type="primary", key="client_generate"):
         if not material_text or not material_text.strip():
             st.error("Wklej najpierw materiał albo wgraj plik.")
         else:
@@ -1011,11 +1206,16 @@ def _client_material_flow():
             if len(sentences) < 2:
                 st.error("Materiał zbyt krótki. Wymagane minimum 2 zdania.")
             else:
-                with st.spinner(f"Generuję informację prasową ({len(sentences)} zdań do analizy)..."):
+                with st.spinner(f"{spinner_label} ({len(sentences)} zdań do analizy)..."):
                     try:
-                        result = call_claude(sentences, format_mode, supplement_mode, excluded)
+                        result = call_claude(
+                            sentences, format_mode, supplement_mode, excluded,
+                            style=style, depesza_mode=depesza_mode
+                        )
                         st.session_state.last_client_result = result
                         st.session_state.last_client_sentences = sentences
+                        st.session_state.last_client_style = style
+                        st.session_state.last_client_depesza_mode = depesza_mode
                     except Exception as e:
                         st.error(f"Błąd: {e}")
                         return
@@ -1031,17 +1231,40 @@ def _client_material_flow():
 
 def _trainee_correction_flow():
     """Tryb poprawiania informacji prasowej napisanej przez stażystę."""
-    # Sidebar (informacyjnie)
+    # Sidebar z ustawieniami
     with st.sidebar:
-        st.header("Tryb stażysty")
+        st.header("Ustawienia oceny")
+        st.caption("Tryb: poprawianie tekstu stażysty")
+
+        style_label = st.radio(
+            "Styl",
+            ["Informacja prasowa MediaRoom", "Depesza PAP (ZROB DEPESZE)"],
+            help="MediaRoom: oceniaj wg stylebooka PAP MediaRoom (z oznaczeniem (MediaRoom) i stopką). Depesza: oceniaj wg stylebooka depeszy PAP (krótka, neutralna, bez oznaczeń komercyjnych).",
+            key="trainee_style"
+        )
+        style = "depesza" if style_label.startswith("Depesza") else "mediaroom"
+
+        depesza_mode = "style_only"
+        if style == "depesza":
+            depesza_mode_label = st.radio(
+                "Tryb depeszy",
+                ["Zmień tylko styl", "Sprawdź wagę informacji i zmień"],
+                help="Tylko styl: zachowuje kolejność z oryginału stażysty, poprawia jedynie język. Ocena wagi: AI niezależnie ocenia wagę informacji i stosuje piramidę odwróconą - może przesunąć kluczowe informacje. Każde przesunięcie pojawi się w liście uchybień.",
+                key="trainee_depesza_mode"
+            )
+            depesza_mode = "evaluate" if depesza_mode_label.startswith("Sprawdź") else "style_only"
+
+        st.divider()
+
         st.caption(
-            "Wklej lub wgraj informację prasową napisaną przez stażystę. "
-            "Aplikacja oceni ją zgodnie ze standardami PAP MediaRoom, "
+            "Wklej lub wgraj tekst napisany przez stażystę. "
+            "Aplikacja oceni go zgodnie ze wskazanym stylebookiem, "
             "wskaże uchybienia oraz zgodności i zaproponuje poprawioną wersję."
         )
 
     # Główna część
-    st.subheader("Tekst stażysty do oceny i poprawy")
+    subject = "depeszy" if style == "depesza" else "informacji prasowej"
+    st.subheader(f"Tekst {subject} stażysty do oceny i poprawy")
 
     tab_text, tab_file = st.tabs(["Wklej tekst", "Wgraj plik (Word lub PDF)"])
 
@@ -1093,9 +1316,11 @@ def _trainee_correction_flow():
         else:
             with st.spinner("Sprawdzam i poprawiam tekst..."):
                 try:
-                    result = call_claude_trainee(trainee_text)
+                    result = call_claude_trainee(trainee_text, style=style, depesza_mode=depesza_mode)
                     st.session_state.last_trainee_result = result
                     st.session_state.last_trainee_text = trainee_text
+                    st.session_state.last_trainee_style = style
+                    st.session_state.last_trainee_depesza_mode = depesza_mode
                 except Exception as e:
                     st.error(f"Błąd: {e}")
                     return
